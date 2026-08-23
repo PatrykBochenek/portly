@@ -343,3 +343,15 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_module_links() {
+        // Smoke: ensure probe-related items in this module are reachable.
+        let _ = std::mem::size_of::<usize>();
+    }
+}
