@@ -200,7 +200,7 @@ fn wait_for_server(py: Python<'_>, port: u16, host: &str, timeout: u64, interval
 ///     port numbers within `[lo, hi]`.
 ///
 /// Raises:
-///     ValueError: If the range is invalid (`lo > hi`).
+///     ValueError: If the range is invalid (`lo == 0` or `lo > hi`).
 ///     OSError: If fewer than `count` free ports exist in the range.
 ///
 /// Example:
@@ -211,6 +211,11 @@ fn wait_for_server(py: Python<'_>, port: u16, host: &str, timeout: u64, interval
 #[pyfunction]
 #[pyo3(signature = (lo=1024, hi=65535, count=1))]
 fn find_free_in_range(py: Python<'_>, lo: u16, hi: u16, count: u16) -> PyResult<Py<PyAny>> {
+    if lo == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "lo must be >= 1 (port 0 is not a valid lower bound)",
+        ));
+    }
     if lo > hi {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "lo ({lo}) must be <= hi ({hi})"
@@ -390,6 +395,17 @@ mod tests {
             assert_ne!(port, 0);
             let port = find_free(Some(0)).expect("a free port must exist");
             assert_ne!(port, 0);
+        });
+    }
+
+    #[test]
+    fn find_free_in_range_rejects_lo_zero() {
+        Python::attach(|py| {
+            let err = find_free_in_range(py, 0, 100, 1).unwrap_err();
+            assert!(
+                err.is_instance_of::<PyValueError>(py),
+                "lo=0 must raise ValueError, got {err:?}"
+            );
         });
     }
 
