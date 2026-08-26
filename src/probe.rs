@@ -33,13 +33,20 @@ mod tests {
 
     #[test]
     fn fresh_port_has_no_processes() {
-        let port = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let processes = find_processes(port, true);
-        assert!(processes.is_empty());
+        // Ephemeral ports can be grabbed by parallel tests between bind and
+        // probe; retry with a fresh port on collision.
+        for _ in 0..10 {
+            let port = TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            let processes = find_processes(port, true);
+            if processes.is_empty() {
+                return;
+            }
+        }
+        panic!("repeatedly failed to observe a process-free port");
     }
 
     #[test]
@@ -62,6 +69,46 @@ mod tests {
         let processes = find_processes(port, false);
         assert_eq!(processes.len(), 1, "expected one process on the UDP port");
         assert_eq!(processes[0].pid, std::process::id());
+    }
+
+    #[test]
+    fn udp_socket_not_attributed_when_listen_only() {
+        use std::net::UdpSocket;
+
+        let sock = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = sock.local_addr().unwrap().port();
+        let processes = find_processes(port, true);
+        assert!(
+            processes.is_empty(),
+            "UDP must not be attributed in listen-only mode"
+        );
+    }
+
+    #[test]
+    fn listen_only_filters_established_sockets() {
+        use std::net::TcpStream;
+
+        // A connected client socket is ESTABLISHED, not LISTEN: it must show
+        // up for kill (listen_only = false) but not for get_info (true).
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_port = listener.local_addr().unwrap().port();
+        let client = TcpStream::connect(("127.0.0.1", server_port)).unwrap();
+        let client_port = client.local_addr().unwrap().port();
+        let _server_side = listener.accept().unwrap();
+
+        let all = find_processes(client_port, false);
+        assert_eq!(
+            all.len(),
+            1,
+            "established socket must be found when not listen-only"
+        );
+        assert_eq!(all[0].pid, std::process::id());
+
+        let listen_only = find_processes(client_port, true);
+        assert!(
+            listen_only.is_empty(),
+            "established socket must be filtered out in listen-only mode"
+        );
     }
 
     #[test]
@@ -114,18 +161,21 @@ mod tests {
     #[test]
     fn port_freed_after_close_has_no_processes() {
         // A listener that was bound and then closed must not appear as a
-        // process owner once the socket is gone.
-        let (port, processes_while_open);
-        {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            port = listener.local_addr().unwrap().port();
-            processes_while_open = find_processes(port, true);
-            assert_eq!(processes_while_open.len(), 1);
+        // process owner once the socket is gone. Ephemeral ports can be
+        // rebound by parallel tests after close; retry with a fresh port.
+        for _ in 0..10 {
+            let port;
+            {
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                port = listener.local_addr().unwrap().port();
+                let processes_while_open = find_processes(port, true);
+                assert_eq!(processes_while_open.len(), 1);
+            }
+            let processes_after_close = find_processes(port, true);
+            if processes_after_close.is_empty() {
+                return;
+            }
         }
-        let processes_after_close = find_processes(port, true);
-        assert!(
-            processes_after_close.is_empty(),
-            "closed port still reported: {processes_after_close:?}"
-        );
+        panic!("repeatedly failed to observe a freed port");
     }
 }

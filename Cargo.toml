@@ -40,6 +40,11 @@ windows-sys = { version = "0.61", features = [
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal"] }
 
+[dev-dependencies]
+# Lets `cargo test` initialize the interpreter for bindings tests. Dev-deps
+# are not compiled for the extension build, so the shipped module is unaffected.
+pyo3 = { version = "0.29", features = ["auto-initialize"] }
+
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2"
 

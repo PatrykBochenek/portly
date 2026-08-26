@@ -96,3 +96,75 @@ pub fn kill_pid(pid: u32, force: bool) -> Result<(), KillError> {
         Err(e) => Err(KillError::Other(e.to_string())),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{kill_pid, processes_for_inodes, socket_inodes};
+    use std::net::{TcpListener, UdpSocket};
+
+    #[test]
+    fn socket_inodes_finds_listening_tcp_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert_eq!(
+            socket_inodes(port, true).len(),
+            1,
+            "LISTEN socket must match"
+        );
+        assert_eq!(socket_inodes(port, false).len(), 1);
+    }
+
+    #[test]
+    fn socket_inodes_finds_udp_only_when_not_listen_only() {
+        let sock = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = sock.local_addr().unwrap().port();
+        assert!(
+            socket_inodes(port, true).is_empty(),
+            "UDP must be ignored in listen-only mode"
+        );
+        assert_eq!(
+            socket_inodes(port, false).len(),
+            1,
+            "UDP must match when not listen-only"
+        );
+    }
+
+    #[test]
+    fn socket_inodes_empty_for_fresh_port() {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        assert!(socket_inodes(port, true).is_empty());
+        assert!(socket_inodes(port, false).is_empty());
+    }
+
+    #[test]
+    fn processes_for_inodes_maps_inode_to_current_process() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let inodes = socket_inodes(port, false);
+        let processes = processes_for_inodes(&inodes);
+        assert_eq!(processes.len(), 1, "expected one owning process");
+        assert_eq!(processes[0].pid, std::process::id());
+        assert!(!processes[0].name.is_empty());
+    }
+
+    #[test]
+    fn processes_for_inodes_empty_for_empty_inode_set() {
+        assert!(processes_for_inodes(&Default::default()).is_empty());
+    }
+
+    #[test]
+    fn kill_pid_missing_process_is_ok() {
+        // Spawn and reap a child so its pid is guaranteed gone: kill(2) then
+        // returns ESRCH, which the probe maps to Ok (process already gone).
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        let status = child.wait().unwrap();
+        assert!(status.success());
+        assert_eq!(kill_pid(pid, false).unwrap(), ());
+        assert_eq!(kill_pid(pid, true).unwrap(), ());
+    }
+}
