@@ -32,3 +32,21 @@ pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
 pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
     crate::platform::kill_on_port(port, force)
 }
+
+#[cfg(test)]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+mod tests {
+    use super::kill_on_port;
+
+    #[test]
+    fn kill_on_port_free_port_returns_false() {
+        // No process owns a fresh port, so there is nothing to kill and the
+        // port is not "freed" by us — the function must report Ok(false).
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        assert!(!kill_on_port(port, false).unwrap());
+    }
+}

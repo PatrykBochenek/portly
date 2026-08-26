@@ -65,6 +65,46 @@ mod tests {
     }
 
     #[test]
+    fn udp_socket_not_attributed_when_listen_only() {
+        use std::net::UdpSocket;
+
+        let sock = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = sock.local_addr().unwrap().port();
+        let processes = find_processes(port, true);
+        assert!(
+            processes.is_empty(),
+            "UDP must not be attributed in listen-only mode"
+        );
+    }
+
+    #[test]
+    fn listen_only_filters_established_sockets() {
+        use std::net::TcpStream;
+
+        // A connected client socket is ESTABLISHED, not LISTEN: it must show
+        // up for kill (listen_only = false) but not for get_info (true).
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_port = listener.local_addr().unwrap().port();
+        let client = TcpStream::connect(("127.0.0.1", server_port)).unwrap();
+        let client_port = client.local_addr().unwrap().port();
+        let _server_side = listener.accept().unwrap();
+
+        let all = find_processes(client_port, false);
+        assert_eq!(
+            all.len(),
+            1,
+            "established socket must be found when not listen-only"
+        );
+        assert_eq!(all[0].pid, std::process::id());
+
+        let listen_only = find_processes(client_port, true);
+        assert!(
+            listen_only.is_empty(),
+            "established socket must be filtered out in listen-only mode"
+        );
+    }
+
+    #[test]
     fn deduplicates_dual_stack_listeners_on_same_port() {
         // An IPv4 and an IPv6 listener bound to the *same* port in this
         // process must surface as exactly one process entry.
