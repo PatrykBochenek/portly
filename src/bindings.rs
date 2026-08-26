@@ -348,3 +348,161 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::exceptions::{PyOSError, PyValueError};
+    use pyo3::types::PyList;
+    use std::net::TcpListener;
+
+    /// Bind a listener, grab its port, then drop it so the port is free.
+    fn free_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    #[test]
+    fn is_available_rejects_port_zero() {
+        Python::attach(|_py| {
+            assert!(!is_available(0));
+        });
+    }
+
+    #[test]
+    fn is_available_reflects_bound_state() {
+        Python::attach(|_py| {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            assert!(!is_available(port), "bound port must not be available");
+            drop(listener);
+            assert!(is_available(port), "port must be available after close");
+        });
+    }
+
+    #[test]
+    fn find_free_returns_nonzero_port() {
+        Python::attach(|_py| {
+            let port = find_free(None).expect("a free port must exist");
+            assert_ne!(port, 0);
+            let port = find_free(Some(0)).expect("a free port must exist");
+            assert_ne!(port, 0);
+        });
+    }
+
+    #[test]
+    fn find_free_in_range_rejects_inverted_range() {
+        Python::attach(|py| {
+            let err = find_free_in_range(py, 8000, 7999, 1).unwrap_err();
+            assert!(
+                err.is_instance_of::<PyValueError>(py),
+                "inverted range must raise ValueError, got {err:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn find_free_in_range_zero_count_returns_empty_list() {
+        Python::attach(|py| {
+            let obj = find_free_in_range(py, 20000, 60000, 0).unwrap();
+            let ports: Vec<u16> = obj.extract(py).unwrap();
+            assert!(ports.is_empty());
+        });
+    }
+
+    #[test]
+    fn find_free_in_range_single_count_returns_int_in_range() {
+        Python::attach(|py| {
+            let obj = find_free_in_range(py, 20000, 60000, 1).unwrap();
+            let port: u16 = obj.extract(py).unwrap();
+            assert!((20000..=60000).contains(&port));
+        });
+    }
+
+    #[test]
+    fn find_free_in_range_multi_count_returns_list() {
+        Python::attach(|py| {
+            let obj = find_free_in_range(py, 20000, 60000, 3).unwrap();
+            assert!(obj.bind(py).is_instance_of::<PyList>());
+            let ports: Vec<u16> = obj.extract(py).unwrap();
+            assert_eq!(ports.len(), 3);
+        });
+    }
+
+    #[test]
+    fn find_free_in_range_raises_oserror_when_range_exhausted() {
+        Python::attach(|py| {
+            // [1, 1] holds at most one port, never two.
+            let err = find_free_in_range(py, 1, 1, 2).unwrap_err();
+            assert!(
+                err.is_instance_of::<PyOSError>(py),
+                "exhausted range must raise OSError, got {err:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn wait_until_free_rejects_port_zero() {
+        Python::attach(|py| {
+            assert!(!wait_until_free(py, 0, 30));
+        });
+    }
+
+    #[test]
+    fn wait_until_free_returns_false_while_bound() {
+        Python::attach(|py| {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            assert!(!wait_until_free(py, port, 0));
+        });
+    }
+
+    #[test]
+    fn wait_for_server_rejects_port_zero() {
+        Python::attach(|py| {
+            assert!(!wait_for_server(py, 0, "127.0.0.1", 30, 0.1));
+        });
+    }
+
+    #[test]
+    fn wait_for_server_returns_false_on_silent_port() {
+        Python::attach(|py| {
+            let port = free_port();
+            assert!(!wait_for_server(py, port, "127.0.0.1", 0, 0.01));
+        });
+    }
+
+    #[test]
+    fn wait_for_server_returns_true_when_listener_present() {
+        Python::attach(|py| {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            assert!(wait_for_server(py, port, "127.0.0.1", 5, 0.01));
+        });
+    }
+
+    #[test]
+    fn get_info_rejects_port_zero() {
+        Python::attach(|py| {
+            assert!(get_info(py, 0).is_none());
+        });
+    }
+
+    #[test]
+    fn kill_rejects_port_zero() {
+        Python::attach(|py| {
+            assert!(kill(py, 0, false).unwrap());
+        });
+    }
+
+    #[test]
+    fn kill_returns_true_on_free_port() {
+        Python::attach(|py| {
+            let port = free_port();
+            assert!(kill(py, port, false).unwrap());
+        });
+    }
+}
