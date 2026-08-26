@@ -33,13 +33,20 @@ mod tests {
 
     #[test]
     fn fresh_port_has_no_processes() {
-        let port = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let processes = find_processes(port, true);
-        assert!(processes.is_empty());
+        // Ephemeral ports can be grabbed by parallel tests between bind and
+        // probe; retry with a fresh port on collision.
+        for _ in 0..10 {
+            let port = TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            let processes = find_processes(port, true);
+            if processes.is_empty() {
+                return;
+            }
+        }
+        panic!("repeatedly failed to observe a process-free port");
     }
 
     #[test]
@@ -154,18 +161,21 @@ mod tests {
     #[test]
     fn port_freed_after_close_has_no_processes() {
         // A listener that was bound and then closed must not appear as a
-        // process owner once the socket is gone.
-        let (port, processes_while_open);
-        {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            port = listener.local_addr().unwrap().port();
-            processes_while_open = find_processes(port, true);
-            assert_eq!(processes_while_open.len(), 1);
+        // process owner once the socket is gone. Ephemeral ports can be
+        // rebound by parallel tests after close; retry with a fresh port.
+        for _ in 0..10 {
+            let port;
+            {
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                port = listener.local_addr().unwrap().port();
+                let processes_while_open = find_processes(port, true);
+                assert_eq!(processes_while_open.len(), 1);
+            }
+            let processes_after_close = find_processes(port, true);
+            if processes_after_close.is_empty() {
+                return;
+            }
         }
-        let processes_after_close = find_processes(port, true);
-        assert!(
-            processes_after_close.is_empty(),
-            "closed port still reported: {processes_after_close:?}"
-        );
+        panic!("repeatedly failed to observe a freed port");
     }
 }
