@@ -67,7 +67,8 @@ Releases are driven by [release-please](https://github.com/googleapis/release-pl
 which parses conventional commits and maintains release PRs:
 
 1. Merge conventional commits to `main` (`feat:` → minor, `fix:` → patch,
-   `feat!:`/`fix!:`/`BREAKING CHANGE` → major).
+   `feat!:`/`fix!:`/`BREAKING CHANGE` → major; until v1.0, breaking changes
+   bump minor only (`bump-minor-pre-major`)).
 2. release-please opens a `chore(main): release vX.Y.Z` PR that bumps
    `Cargo.toml`/`Cargo.lock` and rewrites `CHANGELOG.md`.
 3. Merge the release PR. release-please creates the `vX.Y.Z` tag and GitHub
