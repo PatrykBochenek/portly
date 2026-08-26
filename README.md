@@ -60,6 +60,31 @@ info = portly.get_info(8000)
 results = portly.scan([8000, 8001, 5432])
 ```
 
+## Command Line
+
+Installing the package also provides a `portly` command for terminal use:
+
+```bash
+portly check 8000              # is the port free? (exit 0 = yes, 1 = in use)
+portly find                    # print a free port
+portly find --preferred 8000   # prefer 8000 if it happens to be free
+portly scan 8000 8001 5432     # per-port status
+portly info 8000               # pid/name/cmd of the process using the port
+portly kill 8000               # free the port (add --force for SIGKILL)
+portly wait 8000 --timeout 30  # wait until the port is free
+portly wait-for-server 8000    # wait until a server accepts connections
+```
+
+Add `--json` (before or after the subcommand) for machine-readable output:
+
+```bash
+portly --json check 8000
+# {"port": 8000, "available": true}
+```
+
+Exit codes: `0` success, `1` negative result or failure (port in use, timeout,
+nothing to report), `2` usage error, `130` interrupted with Ctrl-C.
+
 ## API Reference
 
 | Function | Description |
