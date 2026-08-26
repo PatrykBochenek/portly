@@ -87,6 +87,9 @@ class TestWaitUntilFree:
         finally:
             server.close()
 
+    def test_max_timeout_does_not_overflow_for_free_port(self, free_port: int) -> None:
+        assert pw.wait_until_free(free_port, timeout=2**64 - 1) is True
+
 
 class TestGetInfo:
     """Tests for get_info."""
@@ -238,6 +241,20 @@ class TestWaitForServer:
     def test_timeout_returns_false(self) -> None:
         port = _reserve_free_port()
         assert pw.wait_for_server(port, timeout=1, interval=0.1) is False
+
+    def test_max_timeout_does_not_overflow_for_listening_server(self) -> None:
+        server, port = _bind_listener()
+        try:
+            assert pw.wait_for_server(port, timeout=2**64 - 1) is True
+        finally:
+            server.close()
+
+    def test_non_finite_interval_is_bounded_by_timeout(self) -> None:
+        port = _reserve_free_port()
+        started = time.monotonic()
+
+        assert pw.wait_for_server(port, timeout=1, interval=float("inf")) is False
+        assert time.monotonic() - started < 3
 
 
 class TestFindFreeInRange:

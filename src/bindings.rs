@@ -102,17 +102,19 @@ fn wait_until_free(py: Python<'_>, port: u16, timeout: u64) -> bool {
     py.detach(move || {
         use std::time::{Duration, Instant};
 
-        let deadline = Instant::now() + Duration::from_secs(timeout);
-
-        while Instant::now() < deadline {
+        let timeout = Duration::from_secs(timeout);
+        let started = Instant::now();
+        loop {
             if ports::is_port_free(port) {
                 return true;
             }
-            std::thread::sleep(Duration::from_millis(100));
-        }
 
-        // Final check
-        ports::is_port_free(port)
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(100).min(remaining));
+        }
     })
 }
 
@@ -141,7 +143,6 @@ fn wait_for_server(py: Python<'_>, port: u16, host: &str, timeout: u64, interval
         return false;
     }
     let host = host.to_string();
-    let interval = interval.max(0.0);
     // Release the GIL while polling so other Python threads can run.
     py.detach(move || {
         use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -159,23 +160,27 @@ fn wait_for_server(py: Python<'_>, port: u16, host: &str, timeout: u64, interval
         // Per-attempt connect timeout: short enough that a silent host does not
         // hold up the whole timeout, generous enough for a slow accept backlog.
         let attempt_timeout = Duration::from_secs(1);
+        let poll_interval = Duration::try_from_secs_f64(interval.max(0.0)).unwrap_or(Duration::MAX);
 
-        let deadline = Instant::now() + Duration::from_secs(timeout);
+        let timeout = Duration::from_secs(timeout);
+        let started = Instant::now();
         let accepts = || {
             addrs
                 .iter()
                 .any(|addr| TcpStream::connect_timeout(addr, attempt_timeout).is_ok())
         };
 
-        while Instant::now() < deadline {
+        loop {
             if accepts() {
                 return true;
             }
-            std::thread::sleep(Duration::from_secs_f64(interval));
-        }
 
-        // Final attempt after the deadline.
-        accepts()
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return false;
+            }
+            std::thread::sleep(poll_interval.min(remaining));
+        }
     })
 }
 
