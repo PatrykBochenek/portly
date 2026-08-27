@@ -259,20 +259,36 @@ def _redirect_stdout_to_devnull() -> None:
 def main(argv: list[str] | None = None) -> int:
     """Run the ``portly`` CLI; returns the process exit code."""
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        try:
+            args = parser.parse_args(argv)
+        except SystemExit:
+            sys.stdout.flush()
+            raise
+    except BrokenPipeError:
+        _redirect_stdout_to_devnull()
+        return EXIT_FAILURE
+
     json_out = bool(getattr(args, "json", False))
     handler = cast(Callable[[argparse.Namespace, bool], int], vars(args)["func"])
     try:
-        return handler(args, json_out)
+        result = handler(args, json_out)
     except KeyboardInterrupt:
         _error("interrupted")
-        return EXIT_INTERRUPT
+        result = EXIT_INTERRUPT
     except BrokenPipeError:
         _redirect_stdout_to_devnull()
         return EXIT_FAILURE
     except PortlyError as exc:
         _error(str(exc))
+        result = EXIT_FAILURE
+
+    try:
+        sys.stdout.flush()
+    except BrokenPipeError:
+        _redirect_stdout_to_devnull()
         return EXIT_FAILURE
+    return result
 
 
 if __name__ == "__main__":

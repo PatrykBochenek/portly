@@ -2,16 +2,88 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import queue
 import subprocess
 import sys
 import textwrap
+import threading
 
 import pytest
 
 import portly
 from portly import PortlyPortError
 from portly.cli import main
+
+
+def _run_broken_pipe_child(script: str, *, expect_ready: bool, case_name: str) -> tuple[int, str]:
+    """Run a child whose stdout is closed before it emits its payload."""
+    child_env = os.environ.copy()
+    child_env.pop("PYTHONUNBUFFERED", None)
+    with subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=child_env,
+    ) as proc:
+        assert proc.stdin is not None
+        assert proc.stdout is not None
+        assert proc.stderr is not None
+
+        if expect_ready:
+            ready_queue: queue.Queue[bytes] = queue.Queue()
+
+            def read_ready() -> None:
+                assert proc.stdout is not None
+                ready_queue.put(proc.stdout.readline())
+
+            ready_reader = threading.Thread(target=read_ready, daemon=True)
+            ready_reader.start()
+            try:
+                ready = ready_queue.get(timeout=5)
+            except queue.Empty:
+                proc.kill()
+                proc.wait(timeout=5)
+                proc.stdout.close()
+                ready_reader.join(timeout=5)
+                pytest.fail(f"{case_name} subprocess did not signal readiness")
+            ready_reader.join(timeout=5)
+            if ready_reader.is_alive():
+                proc.kill()
+                proc.wait(timeout=5)
+                proc.stdout.close()
+                ready_reader.join(timeout=5)
+                pytest.fail(f"{case_name} readiness reader did not exit")
+            assert ready.splitlines() == [b"ready"]
+
+        proc.stdout.close()
+        proc.stdin.write(b"ack\n")
+        with contextlib.suppress(BrokenPipeError):
+            proc.stdin.flush()
+        with contextlib.suppress(BrokenPipeError):
+            proc.stdin.close()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+            pytest.fail(f"{case_name} subprocess did not exit")
+        stderr = proc.stderr.read().decode("utf-8", errors="replace")
+        returncode = proc.returncode
+
+    assert returncode is not None
+    return returncode, stderr
+
+
+def _assert_clean_broken_pipe_stderr(stderr: str) -> None:
+    """Reject interpreter-shutdown noise from broken-pipe subprocesses."""
+    assert "Exception ignored" not in stderr
+    assert "BrokenPipeError" not in stderr
+    assert "broken pipe" not in stderr.lower()
+    assert "Traceback (most recent call last):" not in stderr
 
 
 class TestCheck:
@@ -247,20 +319,17 @@ class TestErrors:
 
             import portly.cli as cli
 
-            caught_broken_pipe = False
+            handler_result = None
 
-            def emit_many_lines(args, json_out):
-                global caught_broken_pipe
+            def emit_buffered_payload(args, json_out):
+                global handler_result
                 print("ready", flush=True)
-                try:
-                    for _ in range(100_000):
-                        print("payload", flush=True)
-                except BrokenPipeError:
-                    caught_broken_pipe = True
-                    raise
-                return 0
+                assert sys.stdin.buffer.readline() == b"ack\\n"
+                print("payload")
+                handler_result = 0
+                return handler_result
 
-            cli._cmd_scan = emit_many_lines
+            cli._cmd_scan = emit_buffered_payload
 
             if __FORCE_DUP2_FAILURE__:
                 def fail_dup2(fd, target_fd):
@@ -270,36 +339,80 @@ class TestErrors:
 
             result = cli.main(["scan", "1"])
             print(
-                f"caught_broken_pipe={caught_broken_pipe};main_returned={result}",
+                f"handler_returned={handler_result};main_returned={result}",
                 file=sys.stderr,
                 flush=True,
             )
             sys.exit(result)
             """
         ).replace("__FORCE_DUP2_FAILURE__", repr(force_dup2_failure))
-        with subprocess.Popen(
-            [sys.executable, "-c", script],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        ) as proc:
-            assert proc.stdout is not None
-            assert proc.stderr is not None
-            assert proc.stdout.readline().splitlines() == [b"ready"]
-            proc.stdout.close()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5)
-                pytest.fail("broken-pipe subprocess did not exit")
-            stderr = proc.stderr.read().decode("utf-8", errors="replace")
+        returncode, stderr = _run_broken_pipe_child(
+            script, expect_ready=True, case_name="normal handler"
+        )
+        assert returncode == 1
+        assert "handler_returned=0;main_returned=1" in stderr
+        _assert_clean_broken_pipe_stderr(stderr)
 
-        assert proc.returncode == 1
-        assert "caught_broken_pipe=True;main_returned=1" in stderr
-        assert "Exception ignored" not in stderr
-        assert "BrokenPipeError" not in stderr
-        assert "broken pipe" not in stderr.lower()
-        assert "Traceback (most recent call last):" not in stderr
+    @pytest.mark.parametrize(
+        "arg",
+        ["--help", "--version"],
+        ids=["help", "version"],
+    )
+    def test_broken_pipe_argparse_exit(self, arg: str) -> None:
+        script = textwrap.dedent(
+            """
+            import sys
+
+            import portly.cli as cli
+
+            assert sys.stdin.buffer.readline() == b"ack\\n"
+            result = cli.main([__ARG__])
+            print(f"main_returned={result}", file=sys.stderr, flush=True)
+            sys.exit(result)
+            """
+        ).replace("__ARG__", repr(arg))
+        returncode, stderr = _run_broken_pipe_child(
+            script, expect_ready=False, case_name=f"argparse {arg}"
+        )
+        assert returncode == 1
+        assert "main_returned=1" in stderr
+        _assert_clean_broken_pipe_stderr(stderr)
+
+    @pytest.mark.parametrize(
+        ("raise_statement", "diagnostic"),
+        [
+            ("raise PortlyPortError('boom')", "boom"),
+            ("raise KeyboardInterrupt", "interrupted"),
+        ],
+        ids=["portly-error", "keyboard-interrupt"],
+    )
+    def test_broken_pipe_handled_outcome(self, raise_statement: str, diagnostic: str) -> None:
+        script = textwrap.dedent(
+            """
+            import sys
+
+            from portly import PortlyPortError
+            import portly.cli as cli
+
+            def emit_handled_payload(args, json_out):
+                print("ready", flush=True)
+                assert sys.stdin.buffer.readline() == b"ack\\n"
+                print("payload")
+                __RAISE__
+
+            cli._cmd_scan = emit_handled_payload
+            result = cli.main(["scan", "1"])
+            print(f"main_returned={result}", file=sys.stderr, flush=True)
+            sys.exit(result)
+            """
+        ).replace("__RAISE__", raise_statement)
+        returncode, stderr = _run_broken_pipe_child(
+            script, expect_ready=True, case_name="handled outcome"
+        )
+        assert returncode == 1
+        assert diagnostic in stderr
+        assert "main_returned=1" in stderr
+        _assert_clean_broken_pipe_stderr(stderr)
 
     def test_portly_error(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -328,6 +441,12 @@ class TestInterrupt:
 
 class TestVersion:
     """Tests for the ``--version`` flag."""
+
+    def test_help(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(["--help"])
+        assert exc.value.code == 0
+        assert "usage: portly" in capsys.readouterr().out
 
     def test_version(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(SystemExit) as exc:
