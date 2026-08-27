@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import textwrap
 
 import pytest
 
@@ -233,17 +234,72 @@ class TestUsageErrors:
 class TestErrors:
     """Tests for graceful error handling in ``main``."""
 
-    def test_broken_pipe(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        class _ClosedStderr:
-            def close(self) -> None:
-                pass
+    @pytest.mark.parametrize(
+        "force_dup2_failure",
+        [False, True],
+        ids=["real-dup2", "dup2-failure"],
+    )
+    def test_broken_pipe(self, force_dup2_failure: bool) -> None:
+        script = textwrap.dedent(
+            """
+            import os
+            import sys
 
-        def boom(*args: object, **kwargs: object) -> bool:
-            raise BrokenPipeError
+            import portly.cli as cli
 
-        monkeypatch.setattr(sys, "stderr", _ClosedStderr())
-        monkeypatch.setattr(portly, "is_available", boom)
-        assert main(["check", "8000"]) == 1
+            caught_broken_pipe = False
+
+            def emit_many_lines(args, json_out):
+                global caught_broken_pipe
+                print("ready", flush=True)
+                try:
+                    for _ in range(100_000):
+                        print("payload", flush=True)
+                except BrokenPipeError:
+                    caught_broken_pipe = True
+                    raise
+                return 0
+
+            cli._cmd_scan = emit_many_lines
+
+            if __FORCE_DUP2_FAILURE__:
+                def fail_dup2(fd, target_fd):
+                    raise OSError("forced dup2 failure")
+
+                os.dup2 = fail_dup2
+
+            result = cli.main(["scan", "1"])
+            print(
+                f"caught_broken_pipe={caught_broken_pipe};main_returned={result}",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(result)
+            """
+        ).replace("__FORCE_DUP2_FAILURE__", repr(force_dup2_failure))
+        with subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ) as proc:
+            assert proc.stdout is not None
+            assert proc.stderr is not None
+            assert proc.stdout.readline().splitlines() == [b"ready"]
+            proc.stdout.close()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+                pytest.fail("broken-pipe subprocess did not exit")
+            stderr = proc.stderr.read().decode("utf-8", errors="replace")
+
+        assert proc.returncode == 1
+        assert "caught_broken_pipe=True;main_returned=1" in stderr
+        assert "Exception ignored" not in stderr
+        assert "BrokenPipeError" not in stderr
+        assert "broken pipe" not in stderr.lower()
+        assert "Traceback (most recent call last):" not in stderr
 
     def test_portly_error(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

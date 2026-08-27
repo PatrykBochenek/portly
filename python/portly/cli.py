@@ -7,7 +7,9 @@ A small, dependency-free CLI built on :mod:`argparse` that wraps the
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import os
 import sys
 from collections.abc import Callable
 from typing import Any, cast
@@ -234,6 +236,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _redirect_stdout_to_devnull() -> None:
+    """Redirect stdout's file descriptor to the null device."""
+    try:
+        stdout_fd = sys.stdout.fileno()
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull_fd, stdout_fd)
+        finally:
+            os.close(devnull_fd)
+    except (OSError, ValueError):
+        # Replace stdout before closing it: close may fail while flushing, but
+        # shutdown will then flush only this in-memory stream.
+        broken_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            broken_stdout.close()
+        except (OSError, ValueError):
+            return
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the ``portly`` CLI; returns the process exit code."""
     parser = build_parser()
@@ -246,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         _error("interrupted")
         return EXIT_INTERRUPT
     except BrokenPipeError:
-        sys.stderr.close()
+        _redirect_stdout_to_devnull()
         return EXIT_FAILURE
     except PortlyError as exc:
         _error(str(exc))
