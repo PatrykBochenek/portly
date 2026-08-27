@@ -280,6 +280,10 @@ class TestFindFreeInRange:
         with pytest.raises(ValueError):
             pw.find_free_in_range(hi=1024, lo=65535)
 
+    def test_lo_zero_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            pw.find_free_in_range(lo=0, hi=1024)
+
     def test_no_free_port_in_range_raises(self) -> None:
         # Reserve a port, then ask for more free ports than the range holds.
         busy = pw.find_free()

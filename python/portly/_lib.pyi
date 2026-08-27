@@ -31,7 +31,7 @@ def find_free_in_range(lo: int = 1024, hi: int = 65535, count: int = 1) -> int |
     distinct free ports.
 
     Raises:
-        ValueError: If *lo* > *hi*.
+        ValueError: If *lo* == 0 or *lo* > *hi*.
         OSError: If fewer than *count* free ports exist in the range.
     """
     ...
