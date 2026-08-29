@@ -160,25 +160,34 @@ fn wait_for_server(py: Python<'_>, port: u16, host: &str, timeout: u64, interval
         // Per-attempt connect timeout: short enough that a silent host does not
         // hold up the whole timeout, generous enough for a slow accept backlog.
         let attempt_timeout = Duration::from_secs(1);
-        let poll_interval = Duration::try_from_secs_f64(interval.max(0.0)).unwrap_or(Duration::MAX);
+        // #58: clamp interval to a 10ms floor instead of 0; NaN/non-positive
+        // values would otherwise produce sleep(0) busy-spin loops.
+        let interval = if interval.is_finite() && interval > 0.0 {
+            interval
+        } else {
+            0.01
+        };
+        let poll_interval = Duration::try_from_secs_f64(interval).unwrap_or(Duration::from_millis(100));
 
         let timeout = Duration::from_secs(timeout);
         let started = Instant::now();
-        let accepts = || {
-            addrs
-                .iter()
-                .any(|addr| TcpStream::connect_timeout(addr, attempt_timeout).is_ok())
-        };
 
         loop {
-            if accepts() {
-                return true;
-            }
-
             let remaining = timeout.saturating_sub(started.elapsed());
             if remaining.is_zero() {
                 return false;
             }
+            // #57: clamp the per-attempt connect timeout to the remaining
+            // deadline so a dual-stack host cannot overrun the requested
+            // timeout by (addrs × attempt_timeout).
+            let attempt = attempt_timeout.min(remaining);
+            let accepted = addrs
+                .iter()
+                .any(|addr| TcpStream::connect_timeout(addr, attempt).is_ok());
+            if accepted {
+                return true;
+            }
+
             std::thread::sleep(poll_interval.min(remaining));
         }
     })
@@ -360,6 +369,7 @@ mod tests {
     use pyo3::exceptions::{PyOSError, PyValueError};
     use pyo3::types::PyList;
     use std::net::TcpListener;
+    use std::time::{Duration, Instant};
 
     /// Bind a listener, grab its port, then drop it so the port is free.
     fn free_port() -> u16 {
@@ -519,6 +529,28 @@ mod tests {
         Python::attach(|py| {
             let port = free_port();
             assert!(kill(py, port, false).unwrap());
+        });
+    }
+
+    #[test]
+    fn wait_for_server_timeout_zero_returns_promptly() {
+        // #57: timeout=0 must return immediately, even on a dual-stack host
+        // where addrs contains more than one address to try.
+        Python::attach(|py| {
+            let port = free_port();
+            let start = Instant::now();
+            assert!(!wait_for_server(py, port, "localhost", 0, 0.01));
+            assert!(start.elapsed() < Duration::from_secs(2));
+        });
+    }
+
+    #[test]
+    fn wait_for_server_interval_zero_and_nan_no_busy_spin() {
+        // #58: interval <= 0 or NaN must not produce a sleep(0) tight loop.
+        Python::attach(|py| {
+            let port = free_port();
+            assert!(!wait_for_server(py, port, "127.0.0.1", 1, 0.0));
+            assert!(!wait_for_server(py, port, "127.0.0.1", 1, f64::NAN));
         });
     }
 }
