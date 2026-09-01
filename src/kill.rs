@@ -9,6 +9,13 @@ fn is_self_pid(pid: u32) -> bool {
     pid == std::process::id()
 }
 
+/// True for PID 0/1 — system/container-init processes that must never be
+/// terminated (issue #63). Windows already excludes PID 0/4 at the platform
+/// layer; this is the same insurance for Unix.
+fn is_privileged_pid(pid: u32) -> bool {
+    pid <= 1
+}
+
 /// Kill the process(es) using `port` and verify it becomes free.
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
@@ -25,10 +32,12 @@ pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
     let mut denied = false;
     let mut killed_any = false;
     for process in &processes {
-        // #49: never terminate our own process. In-process test servers are
-        // the primary use case for a port-cleanup library; killing self would
-        // SIGTERM/SIGKILL the Python process mid-call on every platform.
-        if is_self_pid(process.pid) {
+        // #49/#63: never terminate our own process or PID 0/1. In-process test
+        // servers are the primary use case for a port-cleanup library; killing
+        // self would SIGTERM/SIGKILL the Python process mid-call on every
+        // platform, and killing PID 1 as container root takes down the
+        // container init.
+        if is_self_pid(process.pid) || is_privileged_pid(process.pid) {
             continue;
         }
         match crate::platform::kill_pid(process.pid, force) {
@@ -53,13 +62,21 @@ pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
 #[cfg(test)]
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod tests {
-    use super::{is_self_pid, kill_on_port};
+    use super::{is_privileged_pid, is_self_pid, kill_on_port};
 
     #[test]
     fn is_self_pid_matches_current_process() {
         assert!(is_self_pid(std::process::id()));
         assert!(!is_self_pid(0));
         assert!(!is_self_pid(u32::MAX));
+    }
+
+    #[test]
+    fn is_privileged_pid_matches_zero_and_one() {
+        assert!(is_privileged_pid(0));
+        assert!(is_privileged_pid(1));
+        assert!(!is_privileged_pid(2));
+        assert!(!is_privileged_pid(u32::MAX));
     }
 
     #[test]
