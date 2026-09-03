@@ -174,6 +174,15 @@ pub fn find_processes(port: u16, listen_only: bool) -> Vec<PortProcess> {
 }
 
 pub fn kill_pid(pid: u32, _force: bool) -> Result<(), KillError> {
+    if pid == std::process::id() {
+        return Err(KillError::Other(
+            "refusing to kill the calling process".into(),
+        ));
+    }
+    // System idle / system process — never terminate.
+    if pid == 0 || pid == 4 {
+        return Err(KillError::Other("refusing to kill a system process".into()));
+    }
     unsafe {
         let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
         if handle.is_null() {
