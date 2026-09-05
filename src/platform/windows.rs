@@ -126,9 +126,7 @@ fn snapshot_names() -> Result<HashMap<u32, String>, KillError> {
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
         if Process32First(handle, &mut entry) == FALSE {
             CloseHandle(handle);
-            return Err(KillError::Other(
-                "Process32First failed".to_string(),
-            ));
+            return Err(KillError::Other("Process32First failed".to_string()));
         }
         loop {
             let len = entry
