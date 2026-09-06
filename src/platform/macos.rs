@@ -22,11 +22,21 @@ pub fn find_processes(port: u16, listen_only: bool) -> Vec<PortProcess> {
         // Size the fd list from the process's actual fd count with a
         // little headroom (a fixed cap silently misses sockets in
         // fd-heavy processes); fall back to a generous default.
-        let max_fds = pidinfo::<BSDInfo>(pid, 0)
+        let mut max_fds = pidinfo::<BSDInfo>(pid, 0)
             .map(|info| info.pbi_nfiles as usize + 32)
             .unwrap_or(4096);
-        let Ok(fds) = listpidinfo::<ListFDs>(pid, max_fds) else {
-            continue; // EPERM for processes owned by other users
+        // #61: a process can open fds between the pidinfo count and the
+        // listpidinfo call, making the buffer too small and silently missing
+        // sockets. Grow the buffer and retry a bounded number of times before
+        // giving up (EPERM for other users' processes stays a miss).
+        let fds = loop {
+            match listpidinfo::<ListFDs>(pid, max_fds) {
+                Ok(fds) => break fds,
+                Err(_) if max_fds < 1 << 20 => {
+                    max_fds = max_fds.saturating_mul(2);
+                }
+                Err(_) => continue 'next,
+            }
         };
         for fd in &fds {
             if !matches!(ProcFDType::from(fd.proc_fdtype), ProcFDType::Socket) {
