@@ -113,18 +113,20 @@ fn collect_pids(port: u16, listen_only: bool, pids: &mut HashSet<u32>) -> Result
 }
 
 /// Snapshot of process-id → executable name (ToolHelp32).
-fn snapshot_names() -> HashMap<u32, String> {
+fn snapshot_names() -> Result<HashMap<u32, String>, KillError> {
     let mut names = HashMap::new();
     unsafe {
         let handle = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if handle == INVALID_HANDLE_VALUE {
-            return names;
+            return Err(KillError::Other(
+                "CreateToolhelp32Snapshot failed".to_string(),
+            ));
         }
         let mut entry: PROCESSENTRY32 = std::mem::zeroed();
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
         if Process32First(handle, &mut entry) == FALSE {
             CloseHandle(handle);
-            return names;
+            return Err(KillError::Other("Process32First failed".to_string()));
         }
         loop {
             let len = entry
@@ -142,7 +144,7 @@ fn snapshot_names() -> HashMap<u32, String> {
         }
         CloseHandle(handle);
     }
-    names
+    Ok(names)
 }
 
 pub fn find_processes(port: u16, listen_only: bool) -> Vec<PortProcess> {
@@ -153,7 +155,7 @@ pub fn find_processes(port: u16, listen_only: bool) -> Vec<PortProcess> {
     if pids.is_empty() {
         return Vec::new();
     }
-    let names = snapshot_names();
+    let names = snapshot_names().unwrap_or_default();
     pids.into_iter()
         .map(|pid| {
             let name = names
@@ -176,7 +178,8 @@ pub fn kill_pid(pid: u32, _force: bool) -> Result<(), KillError> {
         let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
         if handle.is_null() {
             // The process may have exited between the scan and now.
-            if !snapshot_names().contains_key(&pid) {
+            let names = snapshot_names()?;
+            if !names.contains_key(&pid) {
                 return Ok(());
             }
             let err = GetLastError();
