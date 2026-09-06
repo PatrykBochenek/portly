@@ -5,7 +5,11 @@ use crate::probe;
 /// Kill the process(es) using `port` and verify it becomes free.
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
-    let processes = probe::find_processes(port, false);
+    // #50: kill must target TCP LISTEN sockets only. Matching "any socket with
+    // this local port" would also SIGTERM unrelated UDP owners (ephemeral DNS
+    // sockets, systemd-resolved) and TCP ESTABLISHED client sockets whose local
+    // port happens to collide — TCP and UDP port spaces are independent.
+    let processes = probe::find_processes(port, true);
     if processes.is_empty() {
         // The port is busy but no matching process was found (for example
         // it is owned by another user and hidden from us). We cannot kill.
@@ -47,6 +51,16 @@ mod tests {
             .local_addr()
             .unwrap()
             .port();
+        assert!(!kill_on_port(port, false).unwrap());
+    }
+
+    #[test]
+    fn kill_on_port_does_not_target_udp_owner() {
+        // #50: kill must not SIGTERM a process whose UDP socket happens to
+        // share the port with an unrelated TCP listener. A UDP-only port has
+        // no LISTEN owner, so kill reports nothing-to-kill.
+        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = udp.local_addr().unwrap().port();
         assert!(!kill_on_port(port, false).unwrap());
     }
 }
