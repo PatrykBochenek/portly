@@ -2,6 +2,13 @@ use crate::model::KillError;
 use crate::ports::wait_for_port_free;
 use crate::probe;
 
+/// True when `pid` is the current process — killing it would terminate the
+/// caller (issue #49). Port-cleanup libraries are typically called from the
+/// very process they are cleaning up after.
+fn is_self_pid(pid: u32) -> bool {
+    pid == std::process::id()
+}
+
 /// Kill the process(es) using `port` and verify it becomes free.
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
@@ -14,6 +21,12 @@ pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
     let mut denied = false;
     let mut killed_any = false;
     for process in &processes {
+        // #49: never terminate our own process. In-process test servers are
+        // the primary use case for a port-cleanup library; killing self would
+        // SIGTERM/SIGKILL the Python process mid-call on every platform.
+        if is_self_pid(process.pid) {
+            continue;
+        }
         match crate::platform::kill_pid(process.pid, force) {
             Ok(()) => killed_any = true,
             Err(KillError::Permission) => denied = true,
@@ -36,7 +49,14 @@ pub fn kill_on_port(port: u16, force: bool) -> Result<bool, KillError> {
 #[cfg(test)]
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod tests {
-    use super::kill_on_port;
+    use super::{is_self_pid, kill_on_port};
+
+    #[test]
+    fn is_self_pid_matches_current_process() {
+        assert!(is_self_pid(std::process::id()));
+        assert!(!is_self_pid(0));
+        assert!(!is_self_pid(u32::MAX));
+    }
 
     #[test]
     fn kill_on_port_free_port_returns_false() {
