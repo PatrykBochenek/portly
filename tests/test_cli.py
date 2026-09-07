@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import errno
+import io
 import json
 import os
 import queue
@@ -349,7 +351,7 @@ class TestErrors:
         returncode, stderr = _run_broken_pipe_child(
             script, expect_ready=True, case_name="normal handler"
         )
-        assert returncode == 1
+        assert returncode == 1, stderr
         assert "handler_returned=0;main_returned=1" in stderr
         _assert_clean_broken_pipe_stderr(stderr)
 
@@ -374,7 +376,7 @@ class TestErrors:
         returncode, stderr = _run_broken_pipe_child(
             script, expect_ready=False, case_name=f"argparse {arg}"
         )
-        assert returncode == 1
+        assert returncode == 1, stderr
         assert "main_returned=1" in stderr
         _assert_clean_broken_pipe_stderr(stderr)
 
@@ -409,10 +411,46 @@ class TestErrors:
         returncode, stderr = _run_broken_pipe_child(
             script, expect_ready=True, case_name="handled outcome"
         )
-        assert returncode == 1
+        assert returncode == 1, stderr
         assert diagnostic in stderr
         assert "main_returned=1" in stderr
         _assert_clean_broken_pipe_stderr(stderr)
+
+    @pytest.mark.parametrize("platform", ["linux", "win32"])
+    def test_handler_einval_is_not_a_broken_pipe(
+        self, monkeypatch: pytest.MonkeyPatch, platform: str
+    ) -> None:
+        error = OSError(errno.EINVAL, "invalid command argument")
+
+        def boom(*args: object, **kwargs: object) -> bool:
+            raise error
+
+        monkeypatch.setattr(sys, "platform", platform)
+        monkeypatch.setattr(portly, "is_available", boom)
+        with pytest.raises(OSError) as exc:
+            main(["check", "8000"])
+        assert exc.value is error
+
+    @pytest.mark.parametrize("argv", [["--help"], ["check", "8000"]])
+    @pytest.mark.parametrize(
+        ("platform", "error_number"),
+        [("linux", errno.EINVAL), ("linux", errno.EIO), ("win32", errno.EIO)],
+    )
+    def test_unrelated_flush_error_propagates(
+        self, monkeypatch: pytest.MonkeyPatch, argv: list[str], platform: str, error_number: int
+    ) -> None:
+        error = OSError(error_number, "stdout failure")
+
+        class FailingFlush(io.StringIO):
+            def flush(self) -> None:
+                raise error
+
+        monkeypatch.setattr(sys, "platform", platform)
+        monkeypatch.setattr(sys, "stdout", FailingFlush())
+        monkeypatch.setattr(portly, "is_available", lambda port: True)
+        with pytest.raises(OSError) as exc:
+            main(argv)
+        assert exc.value is error
 
     def test_portly_error(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
