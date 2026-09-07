@@ -84,6 +84,17 @@ pub fn kill_pid(pid: u32, force: bool) -> Result<(), KillError> {
     use nix::sys::signal::{kill, Signal};
     use nix::unistd::Pid;
 
+    if pid == std::process::id() {
+        return Err(KillError::Other(
+            "refusing to kill the calling process".into(),
+        ));
+    }
+    if pid <= 1 {
+        return Err(KillError::Other(
+            "refusing to kill init/system process".into(),
+        ));
+    }
+
     let signal = if force {
         Signal::SIGKILL
     } else {
