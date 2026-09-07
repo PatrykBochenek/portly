@@ -7,6 +7,7 @@ A small, dependency-free CLI built on :mod:`argparse` that wraps the
 from __future__ import annotations
 
 import argparse
+import errno
 import io
 import json
 import os
@@ -256,6 +257,20 @@ def _redirect_stdout_to_devnull() -> None:
             return
 
 
+def _flush_stdout() -> None:
+    """Normalize Windows' closed-pipe flush error for the existing cleanup path."""
+    try:
+        sys.stdout.flush()
+    except OSError as exc:
+        # Windows can report ERROR_NO_DATA as EINVAL when a pipe's reader has
+        # already closed. Keep this workaround scoped to stdout flushing:
+        # an EINVAL from a command handler is not evidence of a broken pipe.
+        # https://github.com/python/cpython/issues/79935
+        if sys.platform == "win32" and exc.errno == errno.EINVAL:
+            raise BrokenPipeError(errno.EPIPE, "stdout pipe closed") from exc
+        raise
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the ``portly`` CLI; returns the process exit code."""
     parser = build_parser()
@@ -263,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             args = parser.parse_args(argv)
         except SystemExit:
-            sys.stdout.flush()
+            _flush_stdout()
             raise
     except BrokenPipeError:
         _redirect_stdout_to_devnull()
@@ -284,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         result = EXIT_FAILURE
 
     try:
-        sys.stdout.flush()
+        _flush_stdout()
     except BrokenPipeError:
         _redirect_stdout_to_devnull()
         return EXIT_FAILURE
