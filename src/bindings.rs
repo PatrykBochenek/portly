@@ -160,25 +160,35 @@ fn wait_for_server(py: Python<'_>, port: u16, host: &str, timeout: u64, interval
         // Per-attempt connect timeout: short enough that a silent host does not
         // hold up the whole timeout, generous enough for a slow accept backlog.
         let attempt_timeout = Duration::from_secs(1);
-        let poll_interval = Duration::try_from_secs_f64(interval.max(0.0)).unwrap_or(Duration::MAX);
+        // #58: clamp interval to a 10ms floor instead of 0; NaN/non-positive
+        // values would otherwise produce sleep(0) busy-spin loops.
+        let interval = if interval.is_finite() && interval > 0.0 {
+            interval
+        } else {
+            0.01
+        };
+        let poll_interval =
+            Duration::try_from_secs_f64(interval).unwrap_or(Duration::from_millis(100));
 
         let timeout = Duration::from_secs(timeout);
         let started = Instant::now();
-        let accepts = || {
-            addrs
-                .iter()
-                .any(|addr| TcpStream::connect_timeout(addr, attempt_timeout).is_ok())
-        };
 
         loop {
-            if accepts() {
-                return true;
-            }
-
             let remaining = timeout.saturating_sub(started.elapsed());
             if remaining.is_zero() {
                 return false;
             }
+            // #57: clamp the per-attempt connect timeout to the remaining
+            // deadline so a dual-stack host cannot overrun the requested
+            // timeout by (addrs × attempt_timeout).
+            let attempt = attempt_timeout.min(remaining);
+            let accepted = addrs
+                .iter()
+                .any(|addr| TcpStream::connect_timeout(addr, attempt).is_ok());
+            if accepted {
+                return true;
+            }
+
             std::thread::sleep(poll_interval.min(remaining));
         }
     })
