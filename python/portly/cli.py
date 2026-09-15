@@ -7,7 +7,10 @@ A small, dependency-free CLI built on :mod:`argparse` that wraps the
 from __future__ import annotations
 
 import argparse
+import errno
+import io
 import json
+import os
 import sys
 from collections.abc import Callable
 from typing import Any, cast
@@ -234,23 +237,73 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _redirect_stdout_to_devnull() -> None:
+    """Redirect stdout's file descriptor to the null device."""
+    try:
+        stdout_fd = sys.stdout.fileno()
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull_fd, stdout_fd)
+        finally:
+            os.close(devnull_fd)
+    except (OSError, ValueError):
+        # Replace stdout before closing it: close may fail while flushing, but
+        # shutdown will then flush only this in-memory stream.
+        broken_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            broken_stdout.close()
+        except (OSError, ValueError):
+            return
+
+
+def _flush_stdout() -> None:
+    """Normalize Windows' closed-pipe flush error for the existing cleanup path."""
+    try:
+        sys.stdout.flush()
+    except OSError as exc:
+        # Windows can report ERROR_NO_DATA as EINVAL when a pipe's reader has
+        # already closed. Keep this workaround scoped to stdout flushing:
+        # an EINVAL from a command handler is not evidence of a broken pipe.
+        # https://github.com/python/cpython/issues/79935
+        if sys.platform == "win32" and exc.errno == errno.EINVAL:
+            raise BrokenPipeError(errno.EPIPE, "stdout pipe closed") from exc
+        raise
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the ``portly`` CLI; returns the process exit code."""
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        try:
+            args = parser.parse_args(argv)
+        except SystemExit:
+            _flush_stdout()
+            raise
+    except BrokenPipeError:
+        _redirect_stdout_to_devnull()
+        return EXIT_FAILURE
+
     json_out = bool(getattr(args, "json", False))
     handler = cast(Callable[[argparse.Namespace, bool], int], vars(args)["func"])
     try:
-        return handler(args, json_out)
+        result = handler(args, json_out)
     except KeyboardInterrupt:
         _error("interrupted")
-        return EXIT_INTERRUPT
+        result = EXIT_INTERRUPT
     except BrokenPipeError:
-        sys.stderr.close()
+        _redirect_stdout_to_devnull()
         return EXIT_FAILURE
     except PortlyError as exc:
         _error(str(exc))
+        result = EXIT_FAILURE
+
+    try:
+        _flush_stdout()
+    except BrokenPipeError:
+        _redirect_stdout_to_devnull()
         return EXIT_FAILURE
+    return result
 
 
 if __name__ == "__main__":
