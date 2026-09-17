@@ -8,6 +8,10 @@ on:
       - "v*"
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -139,6 +143,10 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    # Only ever publish from a tag ref. A stray workflow_dispatch on a branch
+    # would otherwise build wheels and try to create a release from the branch
+    # name (that is how the v0.2.1 run failed).
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [linux, musllinux, windows, macos, sdist]
     permissions:
       # For artifact attestation and trusted publishing.
@@ -162,15 +170,26 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4
         with:
           subject-path: 'wheels-*/*'
-      - name: Create or update GitHub Release
+      - name: Attach wheels to the GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            # release-please already created the release (with changelog notes);
-            # attach the wheels to it.
-            gh release upload "${GITHUB_REF_NAME}" wheels-*/* --clobber
-          else
-            gh release create "${GITHUB_REF_NAME}" wheels-*/* --generate-notes
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          # release-please creates the Release (published, not draft) before
+          # dispatching us, so normally this is just an upload. We deliberately
+          # do NOT gate on `gh release view`: it resolves a release by tag and
+          # can miss an existing one, which made the v0.2.1 run fall through to
+          # `gh release create` and fail with HTTP 422 "tag_name was used by an
+          # immutable release". Only fall back to create when the release truly
+          # does not exist; surface anything else.
+          if ! upload_err="$(gh release upload "$tag" wheels-*/* --clobber 2>&1)"; then
+            echo "$upload_err" >&2
+            if grep -qiE 'not found|no release' <<<"$upload_err"; then
+              gh release create "$tag" wheels-*/* --generate-notes --verify-tag
+            else
+              echo "::error::could not attach wheels to release ${tag}"
+              exit 1
+            fi
           fi
         env:
           GH_TOKEN: ${{ github.token }}
@@ -180,4 +199,13 @@ jobs:
           enable-cache: false
       - name: Publish to PyPI
         if: startsWith(github.ref, 'refs/tags/')
-        run: uv publish --trusted-publishing always 'wheels-*/*'
+        # --check-url makes a re-run converge instead of failing on files that
+        # are already on the index after a partial release.
+        run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/portly/ 'wheels-*/*'
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        # Runs last so a draft release only becomes public once the wheels are
+        # live on PyPI. No-op when release-please already published it.
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false
+        env:
+          GH_TOKEN: ${{ github.token }}
