@@ -2,12 +2,14 @@ name: Release Please
 
 # release-please opens a "chore(main): release vX.Y.Z" PR whenever conventional
 # commits land on main. Merging that PR bumps Cargo.toml/Cargo.lock and
-# CHANGELOG.md, then release-please creates the vX.Y.Z tag + GitHub Release.
+# CHANGELOG.md and creates the vX.Y.Z tag + GitHub Release.
 #
-# Because the tag is created with GITHUB_TOKEN, the tag-push event does NOT
-# trigger our release.yml (GitHub suppresses events caused by GITHUB_TOKEN).
-# Instead we dispatch release.yml on the tag via workflow_dispatch, which is
-# allowed for GITHUB_TOKEN.
+# We authenticate with a PAT (RELEASE_PLEASE_TOKEN) rather than the default
+# GITHUB_TOKEN. Events caused by GITHUB_TOKEN do not trigger other workflows,
+# so a tag created with it would never start release.yml. A PAT-authored push
+# does fire `on: push: tags`, which means release.yml runs natively and we can
+# drop the old `gh workflow run` hand-off entirely (no output gates, no
+# Actions:write permission, no tag-propagation race).
 on:
   push:
     branches: [main]
@@ -21,16 +23,17 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v4
+      - name: Require RELEASE_PLEASE_TOKEN
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [ -z "${RELEASE_PLEASE_TOKEN}" ]; then
+            echo "::error::RELEASE_PLEASE_TOKEN is not set. Create a PAT with Contents, Pull requests and Issues write access and add it as a repository secret, otherwise tags created here will not trigger release.yml."
+            exit 1
+          fi
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           target-branch: main
-
-      - name: Trigger release build
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        # --repo: the release-please job has no checkout, so gh cannot resolve
-        # the repository via git; the ref is passed through to the API as-is.
-        run: gh workflow run release.yml --repo "${{ github.repository }}" --ref "${{ steps.release.outputs.tag_name }}"
-        env:
-          GH_TOKEN: ${{ github.token }}
