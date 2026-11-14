@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3](https://github.com/PatrykBochenek/portly/compare/v0.2.2...v0.2.3) (2026-11-14)
+
+
+### Miscellaneous Chores
+
+* rename build changelog section ([#64](https://github.com/PatrykBochenek/portly/issues/64)) ([4c10733](https://github.com/PatrykBochenek/portly/commit/4c10733302513aa94456fc658d81c2a6fc8be061))
+
+
+### Dependencies
+
+* **deps:** bump actions/configure-pages from 5.0.0 to 6.0.0 ([#36](https://github.com/PatrykBochenek/portly/issues/36)) ([4fcba76](https://github.com/PatrykBochenek/portly/commit/4fcba76b93aaf9dc6da99c1a97cb601a58c901ad))
+* **deps:** bump actions/upload-artifact from 7.0.1 to 7.0.2 ([#93](https://github.com/PatrykBochenek/portly/issues/93)) ([4326579](https://github.com/PatrykBochenek/portly/commit/4326579897b2dea4b4cc51b55610166ceae270e8))
+* **deps:** bump actions/upload-pages-artifact from 3.0.1 to 5.0.0 ([#35](https://github.com/PatrykBochenek/portly/issues/35)) ([a5b9784](https://github.com/PatrykBochenek/portly/commit/a5b9784e108c361498aa84b0e3f79f5dda93717a))
+* **deps:** bump astral-sh/setup-uv from 10.1.0 to 10.2.0 ([#88](https://github.com/PatrykBochenek/portly/issues/88)) ([3fc2572](https://github.com/PatrykBochenek/portly/commit/3fc25728187a0922d857a6197a4618dfaaef9141))
+* **deps:** bump codecov/codecov-action from 5.4.2 to 7.1.1 ([#86](https://github.com/PatrykBochenek/portly/issues/86)) ([52a13ad](https://github.com/PatrykBochenek/portly/commit/52a13ad28273f1b01d1a4d69bdfa5143b36eeec9))
+* **deps:** bump libc from 0.2.189 to 0.2.191 ([#97](https://github.com/PatrykBochenek/portly/issues/97)) ([b134dab](https://github.com/PatrykBochenek/portly/commit/b134dabe9b23855e7375b6fcd14659cb30c9757c))
+* **deps:** bump libproc from 0.14.11 to 0.15.0 ([#100](https://github.com/PatrykBochenek/portly/issues/100)) ([bf077af](https://github.com/PatrykBochenek/portly/commit/bf077aff47e33d9f35ae14abb02d9c5caa1e15f6))
+* **deps:** bump pyo3 from 0.29.2 to 0.30.1 ([#95](https://github.com/PatrykBochenek/portly/issues/95)) ([613129c](https://github.com/PatrykBochenek/portly/commit/613129c2eec8608129991ec924c73222582e3401))
+* **deps:** update fastapi requirement from &gt;=0.115 to &gt;=0.162.0 ([#99](https://github.com/PatrykBochenek/portly/issues/99)) ([7e09870](https://github.com/PatrykBochenek/portly/commit/7e09870997d6cb22fc7a77f4f21a2bad45cf8db4))
+* **deps:** update uvicorn requirement from &gt;=0.52.4 to &gt;=0.54.0 ([#90](https://github.com/PatrykBochenek/portly/issues/90)) ([d2f3102](https://github.com/PatrykBochenek/portly/commit/d2f3102df37d2b24432c524244d1ec1aa0c19cb3))
+
+
+### Continuous Integration
+
+* remove temp `last-release-sha` pin ([#84](https://github.com/PatrykBochenek/portly/issues/84)) ([eb68953](https://github.com/PatrykBochenek/portly/commit/eb6895368c2f2450399f0b7f991fd4943add2978))
+
 ## [0.2.2](https://github.com/PatrykBochenek/portly/compare/v0.2.1...v0.2.2) (2026-09-17)
 
 
