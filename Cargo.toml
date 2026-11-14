@@ -26,7 +26,7 @@ port_check = "0.3"
 procfs = "0.18"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libproc = "0.14"
+libproc = "0.15"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
