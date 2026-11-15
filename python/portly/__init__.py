@@ -16,32 +16,29 @@ Example:
 # bare builtin exceptions (while staying compatible with `except OSError` /
 # `except PermissionError`).
 from portly import _lib
+from portly._errors import PortlyError, PortlyPermissionError, PortlyPortError
 from portly._lib import __version__ as __version__
+from portly._validation import _validate_port, _validate_range, _validate_timeout
 
-
-class PortlyError(Exception):
-    """Base class for all portly errors."""
-
-
-class PortlyPortError(PortlyError, OSError):
-    """A port-related failure (invalid port, no free port found).
-
-    Also a subclass of :class:`OSError`, so existing ``except OSError``
-    handlers keep working.
-    """
-
-
-class PortlyPermissionError(PortlyError, PermissionError):
-    """Permission denied while inspecting or killing a process.
-
-    Also a subclass of :class:`PermissionError`, so existing
-    ``except PermissionError`` handlers keep working.
-    """
+__all__ = [
+    "PortlyError",
+    "PortlyPermissionError",
+    "PortlyPortError",
+    "__version__",
+    "find_free",
+    "find_free_in_range",
+    "get_info",
+    "is_available",
+    "kill",
+    "scan",
+    "wait_for_server",
+    "wait_until_free",
+]
 
 
 def is_available(port: int) -> bool:
     """Return True if *port* is free on localhost, False otherwise."""
-    return _lib.is_available(port)
+    return _lib.is_available(_validate_port(port))
 
 
 def find_free(preferred: int | None = None) -> int:
@@ -50,6 +47,8 @@ def find_free(preferred: int | None = None) -> int:
     Raises:
         PortlyPortError: If no free port could be found.
     """
+    if preferred is not None:
+        preferred = _validate_port(preferred, "preferred")
     try:
         return _lib.find_free(preferred)
     except OSError as exc:
@@ -66,6 +65,7 @@ def find_free_in_range(lo: int = 1024, hi: int = 65535, count: int = 1) -> int |
         ValueError: If *lo* == 0 or *lo* > *hi*.
         PortlyPortError: If fewer than *count* free ports exist in the range.
     """
+    _validate_range(lo, hi, count)
     try:
         return _lib.find_free_in_range(lo, hi, count)
     except ValueError:
@@ -79,7 +79,10 @@ def wait_until_free(port: int, timeout: int = 30) -> bool:
 
     Returns True if the port became free, False on timeout.
     """
-    return _lib.wait_until_free(port, timeout)
+    return _lib.wait_until_free(
+        _validate_port(port),
+        _validate_timeout(timeout),
+    )
 
 
 def wait_for_server(
@@ -90,7 +93,7 @@ def wait_for_server(
     Polls *host*:*port* with TCP connect attempts every *interval* seconds.
     Returns True once the port accepts a connection, False on timeout.
     """
-    return _lib.wait_for_server(port, host, timeout, interval)
+    return _lib.wait_for_server(_validate_port(port), host, _validate_timeout(timeout), interval)
 
 
 def get_info(port: int) -> dict[str, int | str] | None:
@@ -98,7 +101,7 @@ def get_info(port: int) -> dict[str, int | str] | None:
 
     Returns None if the port is free (or its owner is not visible to us).
     """
-    return _lib.get_info(port)
+    return _lib.get_info(_validate_port(port))
 
 
 def kill(port: int, force: bool = False) -> bool:
@@ -112,6 +115,7 @@ def kill(port: int, force: bool = False) -> bool:
         PortlyPortError: If the process(es) could not be killed for another
             reason.
     """
+    port = _validate_port(port)
     try:
         return _lib.kill(port, force)
     except PermissionError as exc:
@@ -122,20 +126,4 @@ def kill(port: int, force: bool = False) -> bool:
 
 def scan(ports: list[int]) -> dict[int, dict[str, int | str] | None]:
     """Return process info for each port in *ports* (None when free)."""
-    return _lib.scan(ports)
-
-
-__all__ = [
-    "PortlyError",
-    "PortlyPermissionError",
-    "PortlyPortError",
-    "__version__",
-    "find_free",
-    "find_free_in_range",
-    "get_info",
-    "is_available",
-    "kill",
-    "scan",
-    "wait_for_server",
-    "wait_until_free",
-]
+    return _lib.scan([_validate_port(p) for p in ports])
