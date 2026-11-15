@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4](https://github.com/PatrykBochenek/portly/compare/v0.2.3...v0.2.4) (2026-11-15)
+
+
+### Bug Fixes
+
+* validate port/count/timeout args in Python shim so bad values raise PortlyPortError ([#101](https://github.com/PatrykBochenek/portly/issues/101)) ([2cc5fa8](https://github.com/PatrykBochenek/portly/commit/2cc5fa80f384a3a6472163e47c090ecf5a05420f))
+
 ## [0.2.3](https://github.com/PatrykBochenek/portly/compare/v0.2.2...v0.2.3) (2026-11-14)
 
 
