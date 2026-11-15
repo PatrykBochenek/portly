@@ -365,9 +365,7 @@ class TestArgumentValidation:
             pytest.param(lambda p: pw.find_free(p), id="find_free"),
         ],
     )
-    @pytest.mark.parametrize(
-        "bad_port", ["70000", 1.5], ids=["string", "float"]
-    )
+    @pytest.mark.parametrize("bad_port", ["70000", 1.5], ids=["string", "float"])
     def test_non_integer_port_raises_portly_port_error(self, call, bad_port) -> None:
         with pytest.raises(PortlyPortError) as excinfo:
             call(bad_port)
@@ -382,17 +380,13 @@ class TestArgumentValidation:
         assert not isinstance(excinfo.value, (OverflowError, TypeError))
 
     @pytest.mark.parametrize("bad_lo", [-1, 65536, 70000])
-    def test_find_free_in_range_invalid_lo_raises_portly_port_error(
-        self, bad_lo: int
-    ) -> None:
+    def test_find_free_in_range_invalid_lo_raises_portly_port_error(self, bad_lo: int) -> None:
         with pytest.raises(PortlyPortError) as excinfo:
             pw.find_free_in_range(lo=bad_lo, hi=65535)
         assert not isinstance(excinfo.value, (OverflowError, TypeError))
 
     @pytest.mark.parametrize("bad_hi", [-1, 65536, 70000])
-    def test_find_free_in_range_invalid_hi_raises_portly_port_error(
-        self, bad_hi: int
-    ) -> None:
+    def test_find_free_in_range_invalid_hi_raises_portly_port_error(self, bad_hi: int) -> None:
         with pytest.raises(PortlyPortError) as excinfo:
             pw.find_free_in_range(lo=1024, hi=bad_hi)
         assert not isinstance(excinfo.value, (OverflowError, TypeError))

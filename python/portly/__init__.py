@@ -54,9 +54,7 @@ def _validate_port(port: int, name: str = "port", *, allow_zero: bool = False) -
     if port == 0 and allow_zero:
         return port
     if not _PORT_MIN <= port <= _PORT_MAX:
-        raise PortlyPortError(
-            f"{name} must be between {_PORT_MIN} and {_PORT_MAX}, got {port}"
-        )
+        raise PortlyPortError(f"{name} must be between {_PORT_MIN} and {_PORT_MAX}, got {port}")
     return port
 
 
@@ -64,13 +62,10 @@ def _validate_timeout(timeout: int, name: str = "timeout") -> int:
     """Return *timeout* if it is a non-negative integer, else raise."""
     if not isinstance(timeout, int):
         raise PortlyPortError(
-            f"{name} must be an integer number of seconds >= 0, "
-            f"got {type(timeout).__name__}"
+            f"{name} must be an integer number of seconds >= 0, got {type(timeout).__name__}"
         )
     if not 0 <= timeout <= _TIMEOUT_MAX:
-        raise PortlyPortError(
-            f"{name} must be between 0 and {_TIMEOUT_MAX} seconds, got {timeout}"
-        )
+        raise PortlyPortError(f"{name} must be between 0 and {_TIMEOUT_MAX} seconds, got {timeout}")
     return timeout
 
 
@@ -78,9 +73,7 @@ def _validate_range(lo: int, hi: int, count: int) -> None:
     """Validate find_free_in_range arguments, preserving its ValueError contract."""
     for name, value in (("lo", lo), ("hi", hi), ("count", count)):
         if not isinstance(value, int):
-            raise PortlyPortError(
-                f"{name} must be an integer, got {type(value).__name__}"
-            )
+            raise PortlyPortError(f"{name} must be an integer, got {type(value).__name__}")
     # Structural range errors keep raising ValueError (documented and
     # backwards-compatible), while numeric overflow becomes PortlyPortError.
     if lo == 0:
@@ -93,9 +86,7 @@ def _validate_range(lo: int, hi: int, count: int) -> None:
     if lo > hi:
         raise ValueError(f"lo ({lo}) must be <= hi ({hi})")
     if not 0 <= count <= _PORT_MAX:
-        raise PortlyPortError(
-            f"count must be between 0 and {_PORT_MAX}, got {count}"
-        )
+        raise PortlyPortError(f"count must be between 0 and {_PORT_MAX}, got {count}")
 
 
 def is_available(port: int) -> bool:
