@@ -7,6 +7,7 @@ import socket
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 
 import pytest
 
@@ -349,7 +350,9 @@ class TestArgumentValidation:
         ],
     )
     @pytest.mark.parametrize("bad_port", [-1, 65536, 70000])
-    def test_invalid_port_raises_portly_port_error(self, call, bad_port: int) -> None:
+    def test_invalid_port_raises_portly_port_error(
+        self, call: Callable[[object], object], bad_port: int
+    ) -> None:
         with pytest.raises(PortlyPortError) as excinfo:
             call(bad_port)
         assert not isinstance(excinfo.value, (OverflowError, TypeError))
@@ -366,7 +369,9 @@ class TestArgumentValidation:
         ],
     )
     @pytest.mark.parametrize("bad_port", ["70000", 1.5], ids=["string", "float"])
-    def test_non_integer_port_raises_portly_port_error(self, call, bad_port) -> None:
+    def test_non_integer_port_raises_portly_port_error(
+        self, call: Callable[[object], object], bad_port: object
+    ) -> None:
         with pytest.raises(PortlyPortError) as excinfo:
             call(bad_port)
         assert not isinstance(excinfo.value, (OverflowError, TypeError))
@@ -399,7 +404,9 @@ class TestArgumentValidation:
         ],
     )
     @pytest.mark.parametrize("bad_timeout", [-1, -(2**63), 2**64])
-    def test_invalid_timeout_raises_portly_port_error(self, call, bad_timeout: int) -> None:
+    def test_invalid_timeout_raises_portly_port_error(
+        self, call: Callable[[object], object], bad_timeout: int
+    ) -> None:
         with pytest.raises(PortlyPortError) as excinfo:
             call(bad_timeout)
         assert not isinstance(excinfo.value, (OverflowError, TypeError))
@@ -412,7 +419,9 @@ class TestArgumentValidation:
         ],
     )
     @pytest.mark.parametrize("bad_timeout", ["30", 1.5], ids=["string", "float"])
-    def test_non_integer_timeout_raises_portly_port_error(self, call, bad_timeout) -> None:
+    def test_non_integer_timeout_raises_portly_port_error(
+        self, call: Callable[[object], object], bad_timeout: object
+    ) -> None:
         with pytest.raises(PortlyPortError) as excinfo:
             call(bad_timeout)
         assert not isinstance(excinfo.value, (OverflowError, TypeError))
