@@ -334,6 +334,102 @@ class TestExceptionHierarchy:
             server.close()
 
 
+class TestArgumentValidation:
+    """Out-of-range arguments raise typed errors, not raw OverflowError/TypeError."""
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(lambda p: pw.is_available(p), id="is_available"),
+            pytest.param(lambda p: pw.get_info(p), id="get_info"),
+            pytest.param(lambda p: pw.kill(p), id="kill"),
+            pytest.param(lambda p: pw.wait_until_free(p, timeout=0), id="wait_until_free"),
+            pytest.param(lambda p: pw.wait_for_server(p, timeout=0), id="wait_for_server"),
+            pytest.param(lambda p: pw.find_free(p), id="find_free"),
+        ],
+    )
+    @pytest.mark.parametrize("bad_port", [-1, 65536, 70000])
+    def test_invalid_port_raises_portly_port_error(self, call, bad_port: int) -> None:
+        with pytest.raises(PortlyPortError) as excinfo:
+            call(bad_port)
+        assert not isinstance(excinfo.value, (OverflowError, TypeError))
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(lambda p: pw.is_available(p), id="is_available"),
+            pytest.param(lambda p: pw.get_info(p), id="get_info"),
+            pytest.param(lambda p: pw.kill(p), id="kill"),
+            pytest.param(lambda p: pw.wait_until_free(p, timeout=0), id="wait_until_free"),
+            pytest.param(lambda p: pw.wait_for_server(p, timeout=0), id="wait_for_server"),
+            pytest.param(lambda p: pw.find_free(p), id="find_free"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "bad_port", ["70000", 1.5], ids=["string", "float"]
+    )
+    def test_non_integer_port_raises_portly_port_error(self, call, bad_port) -> None:
+        with pytest.raises(PortlyPortError) as excinfo:
+            call(bad_port)
+        assert not isinstance(excinfo.value, (OverflowError, TypeError))
+
+    @pytest.mark.parametrize("bad_count", [-1, 65536, 70000])
+    def test_find_free_in_range_invalid_count_raises_portly_port_error(
+        self, bad_count: int
+    ) -> None:
+        with pytest.raises(PortlyPortError) as excinfo:
+            pw.find_free_in_range(40000, 40100, count=bad_count)
+        assert not isinstance(excinfo.value, (OverflowError, TypeError))
+
+    @pytest.mark.parametrize("bad_lo", [-1, 65536, 70000])
+    def test_find_free_in_range_invalid_lo_raises_portly_port_error(
+        self, bad_lo: int
+    ) -> None:
+        with pytest.raises(PortlyPortError) as excinfo:
+            pw.find_free_in_range(lo=bad_lo, hi=65535)
+        assert not isinstance(excinfo.value, (OverflowError, TypeError))
+
+    @pytest.mark.parametrize("bad_hi", [-1, 65536, 70000])
+    def test_find_free_in_range_invalid_hi_raises_portly_port_error(
+        self, bad_hi: int
+    ) -> None:
+        with pytest.raises(PortlyPortError) as excinfo:
+            pw.find_free_in_range(lo=1024, hi=bad_hi)
+        assert not isinstance(excinfo.value, (OverflowError, TypeError))
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(lambda t: pw.wait_until_free(40000, timeout=t), id="wait_until_free"),
+            pytest.param(lambda t: pw.wait_for_server(40000, timeout=t), id="wait_for_server"),
+        ],
+    )
+    @pytest.mark.parametrize("bad_timeout", [-1, -(2**63), 2**64])
+    def test_invalid_timeout_raises_portly_port_error(self, call, bad_timeout: int) -> None:
+        with pytest.raises(PortlyPortError) as excinfo:
+            call(bad_timeout)
+        assert not isinstance(excinfo.value, (OverflowError, TypeError))
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(lambda t: pw.wait_until_free(40000, timeout=t), id="wait_until_free"),
+            pytest.param(lambda t: pw.wait_for_server(40000, timeout=t), id="wait_for_server"),
+        ],
+    )
+    @pytest.mark.parametrize("bad_timeout", ["30", 1.5], ids=["string", "float"])
+    def test_non_integer_timeout_raises_portly_port_error(self, call, bad_timeout) -> None:
+        with pytest.raises(PortlyPortError) as excinfo:
+            call(bad_timeout)
+        assert not isinstance(excinfo.value, (OverflowError, TypeError))
+
+    @pytest.mark.parametrize("bad_port", [-1, 65536, 70000])
+    def test_scan_invalid_port_raises_portly_port_error(self, bad_port: int) -> None:
+        with pytest.raises(PortlyPortError) as excinfo:
+            pw.scan([bad_port])
+        assert not isinstance(excinfo.value, (OverflowError, TypeError))
+
+
 def _reserve_free_port() -> int:
     """Return a port that is currently free (may be reused by a waiter)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:

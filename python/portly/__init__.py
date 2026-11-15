@@ -39,9 +39,68 @@ class PortlyPermissionError(PortlyError, PermissionError):
     """
 
 
+_PORT_MIN = 1
+_PORT_MAX = 65535
+_TIMEOUT_MAX = 2**64 - 1
+
+
+def _validate_port(port: int, name: str = "port", *, allow_zero: bool = False) -> int:
+    """Return *port* if it fits the 1-65535 range, else raise PortlyPortError."""
+    if not isinstance(port, int):
+        raise PortlyPortError(
+            f"{name} must be an integer port number ({_PORT_MIN}-{_PORT_MAX}), "
+            f"got {type(port).__name__}"
+        )
+    if port == 0 and allow_zero:
+        return port
+    if not _PORT_MIN <= port <= _PORT_MAX:
+        raise PortlyPortError(
+            f"{name} must be between {_PORT_MIN} and {_PORT_MAX}, got {port}"
+        )
+    return port
+
+
+def _validate_timeout(timeout: int, name: str = "timeout") -> int:
+    """Return *timeout* if it is a non-negative integer, else raise."""
+    if not isinstance(timeout, int):
+        raise PortlyPortError(
+            f"{name} must be an integer number of seconds >= 0, "
+            f"got {type(timeout).__name__}"
+        )
+    if not 0 <= timeout <= _TIMEOUT_MAX:
+        raise PortlyPortError(
+            f"{name} must be between 0 and {_TIMEOUT_MAX} seconds, got {timeout}"
+        )
+    return timeout
+
+
+def _validate_range(lo: int, hi: int, count: int) -> None:
+    """Validate find_free_in_range arguments, preserving its ValueError contract."""
+    for name, value in (("lo", lo), ("hi", hi), ("count", count)):
+        if not isinstance(value, int):
+            raise PortlyPortError(
+                f"{name} must be an integer, got {type(value).__name__}"
+            )
+    # Structural range errors keep raising ValueError (documented and
+    # backwards-compatible), while numeric overflow becomes PortlyPortError.
+    if lo == 0:
+        raise ValueError("lo must be >= 1 (port 0 is not a valid lower bound)")
+    for name, value in (("lo", lo), ("hi", hi)):
+        if not _PORT_MIN <= value <= _PORT_MAX:
+            raise PortlyPortError(
+                f"{name} must be between {_PORT_MIN} and {_PORT_MAX}, got {value}"
+            )
+    if lo > hi:
+        raise ValueError(f"lo ({lo}) must be <= hi ({hi})")
+    if not 0 <= count <= _PORT_MAX:
+        raise PortlyPortError(
+            f"count must be between 0 and {_PORT_MAX}, got {count}"
+        )
+
+
 def is_available(port: int) -> bool:
     """Return True if *port* is free on localhost, False otherwise."""
-    return _lib.is_available(port)
+    return _lib.is_available(_validate_port(port, allow_zero=True))
 
 
 def find_free(preferred: int | None = None) -> int:
@@ -50,6 +109,8 @@ def find_free(preferred: int | None = None) -> int:
     Raises:
         PortlyPortError: If no free port could be found.
     """
+    if preferred is not None:
+        preferred = _validate_port(preferred, "preferred", allow_zero=True)
     try:
         return _lib.find_free(preferred)
     except OSError as exc:
@@ -66,6 +127,7 @@ def find_free_in_range(lo: int = 1024, hi: int = 65535, count: int = 1) -> int |
         ValueError: If *lo* == 0 or *lo* > *hi*.
         PortlyPortError: If fewer than *count* free ports exist in the range.
     """
+    _validate_range(lo, hi, count)
     try:
         return _lib.find_free_in_range(lo, hi, count)
     except ValueError:
@@ -79,7 +141,10 @@ def wait_until_free(port: int, timeout: int = 30) -> bool:
 
     Returns True if the port became free, False on timeout.
     """
-    return _lib.wait_until_free(port, timeout)
+    return _lib.wait_until_free(
+        _validate_port(port, allow_zero=True),
+        _validate_timeout(timeout),
+    )
 
 
 def wait_for_server(
@@ -90,7 +155,9 @@ def wait_for_server(
     Polls *host*:*port* with TCP connect attempts every *interval* seconds.
     Returns True once the port accepts a connection, False on timeout.
     """
-    return _lib.wait_for_server(port, host, timeout, interval)
+    return _lib.wait_for_server(
+        _validate_port(port, allow_zero=True), host, _validate_timeout(timeout), interval
+    )
 
 
 def get_info(port: int) -> dict[str, int | str] | None:
@@ -98,7 +165,7 @@ def get_info(port: int) -> dict[str, int | str] | None:
 
     Returns None if the port is free (or its owner is not visible to us).
     """
-    return _lib.get_info(port)
+    return _lib.get_info(_validate_port(port, allow_zero=True))
 
 
 def kill(port: int, force: bool = False) -> bool:
@@ -112,6 +179,7 @@ def kill(port: int, force: bool = False) -> bool:
         PortlyPortError: If the process(es) could not be killed for another
             reason.
     """
+    port = _validate_port(port, allow_zero=True)
     try:
         return _lib.kill(port, force)
     except PermissionError as exc:
@@ -122,7 +190,7 @@ def kill(port: int, force: bool = False) -> bool:
 
 def scan(ports: list[int]) -> dict[int, dict[str, int | str] | None]:
     """Return process info for each port in *ports* (None when free)."""
-    return _lib.scan(ports)
+    return _lib.scan([_validate_port(p, allow_zero=True) for p in ports])
 
 
 __all__ = [
