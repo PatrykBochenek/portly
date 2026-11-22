@@ -38,7 +38,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", features = ["signal"] }
+nix = { version = "0.32", features = ["signal"] }
 
 [dev-dependencies]
 # Lets `cargo test` initialize the interpreter for bindings tests. Dev-deps
